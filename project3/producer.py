@@ -1,96 +1,205 @@
-"""Earthquakes -> Kafka topic "quakes".
+"""Bluesky Jetstream -> Kafka topic bluesky_posts.
+Had to change from Coinbase to Bluesky
 
-  python quakes_producer.py history 7   # PULL: the last 7 days from the EMSC catalogue
-  python quakes_producer.py live        # PUSH: new and updated events from the EMSC WebSocket
+Run:
+    python -u producer.py
 
-Adapted from Professor Magee's stream-seismic.py (learn-kafka).
+Adapted from the class producer and the worksheet's WebSocket pattern.
+Uses certifi for TLS certificate verification.
 """
+
 import asyncio
 import json
 import logging
-import sys
+import ssl
 import time
-from datetime import datetime, timedelta, timezone
 
-import requests
-from quixstreams import Application
+import certifi
+from tornado.httpclient import HTTPRequest
 from tornado.websocket import websocket_connect
 
+print("Loading Quix Streams; this may take a minute or two...", flush=True)
+from quixstreams import Application
+
+
 BROKER = "127.0.0.1:19092"
-TOPIC = "quakes"
-FDSN_URL = "https://www.seismicportal.eu/fdsnws/event/1/query"
-WSS_URL = "wss://www.seismicportal.eu/standing_order/websocket"
+TOPIC = "bluesky_posts"
+
+# Only request events for Bluesky posts.
+WSS_URL = (
+    "wss://jetstream2.us-east.bsky.network/subscribe"
+    "?wantedCollections=app.bsky.feed.post"
+)
+
+# Jetstream starts sending events without a subscription message.
+SUBSCRIBE = None
+
+RECONNECT_SECONDS = 5
+FLUSH_INTERVAL_SECONDS = 5
+FLUSH_TIMEOUT_SECONDS = 10
+
+logger = logging.getLogger("bluesky_producer")
 
 
-def send(producer, message):
-    """One Kafka record per message. Key = the event id, so every
-    version of the same earthquake goes to the same partition, in order."""
-    unid = message["data"]["properties"]["unid"]
-    producer.produce(topic=TOPIC, key=unid, value=json.dumps(message))
-    return unid
+def configure_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    logger.setLevel(logging.INFO)
 
 
-def history(producer, days):
-    """PULL: ask the catalogue for one day at a time (far below the 20,000 limit)."""
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    total = 0
-    for back in range(days - 1, -1, -1):  # the last N days, today included
-        start = today - timedelta(days=back)
-        end = start + timedelta(days=1)
-        r = requests.get(
-            FDSN_URL,
-            params={
-                "start": start.strftime("%Y-%m-%dT%H:%M:%S"),
-                "end": end.strftime("%Y-%m-%dT%H:%M:%S"),
-                "format": "json",
-                "limit": 20000,
-                "orderby": "time-asc",
-            },
-            timeout=60,
+def send(producer, payload):
+    """Queue one event, keyed by the author's DID."""
+    key = payload.get("did")
+
+    if not key:
+        logger.warning("Missing DID; sending without a key.")
+
+    message = {
+        "action": "live",
+        "data": payload,
+    }
+
+    producer.produce(
+        topic=TOPIC,
+        key=key,
+        value=json.dumps(message).encode("utf-8"),
+    )
+
+
+def flush_pending(producer):
+    remaining = producer.flush(timeout=FLUSH_TIMEOUT_SECONDS)
+
+    if remaining:
+        logger.warning(
+            "%s records remain undelivered; check Kafka connection errors.",
+            remaining,
         )
-        if r.status_code == 204:  # no events that day
-            continue
-        r.raise_for_status()
-        features = r.json()["features"]
-        for feature in features:
-            send(producer, {"action": "history", "data": feature})
-        total += len(features)
-        logging.info("%s  %4d events   total %d", start.date(), len(features), total)
-        time.sleep(1)  # be polite to a free public service
-    logging.info("History done: %d events sent to %s", total, TOPIC)
+
+    return remaining
 
 
-async def live(producer):
-    """PUSH: keep one connection open; EMSC sends each new or updated event."""
-    ws = await websocket_connect(WSS_URL, ping_interval=15)
-    logging.info("Connected. Waiting for earthquakes (often about one a minute)...")
+async def live(producer, ssl_context):
+    queued = 0
+    last_flush = time.monotonic()
+
     while True:
-        text = await ws.read_message()
-        if text is None:
-            logging.warning("The server closed the connection")
-            break
+        ws = None
+
         try:
-            message = json.loads(text)
-            unid = send(producer, message)
-            p = message["data"]["properties"]
-            logging.info("%-7s %s  M%s  %s", message.get("action"), unid, p.get("mag"), p.get("flynn_region"))
-        except (ValueError, KeyError, TypeError) as e:
-            logging.warning("Skipped a message I could not read: %r", e)
+            logger.info("Connecting to Bluesky Jetstream...")
+
+            request = HTTPRequest(
+                url=WSS_URL,
+                ssl_options=ssl_context,
+                connect_timeout=20,
+            )
+
+            ws = await websocket_connect(
+                request,
+                ping_interval=15,
+                max_message_size=10 * 1024 * 1024,
+            )
+
+            logger.info("Connected. Waiting for post events...")
+
+            while True:
+                text = await ws.read_message()
+
+                if text is None:
+                    logger.warning("Jetstream closed the connection.")
+                    break
+
+                try:
+                    payload = json.loads(text)
+                except (ValueError, TypeError):
+                    logger.warning("Skipping invalid JSON.")
+                    continue
+
+                if not isinstance(payload, dict):
+                    continue
+
+                # Jetstream also has identity/account events.
+                if payload.get("kind") != "commit":
+                    continue
+
+                commit = payload.get("commit") or {}
+                if not isinstance(commit, dict):
+                    continue
+
+                if commit.get("collection") != "app.bsky.feed.post":
+                    continue
+
+                # Keep create, update, and delete events for this collection.
+                send(producer, payload)
+                queued += 1
+
+                if queued <= 5 or queued % 1000 == 0:
+                    logger.info(
+                        "Queued %d events | DID=%s | operation=%s",
+                        queued,
+                        payload.get("did"),
+                        commit.get("operation"),
+                    )
+
+                now = time.monotonic()
+
+                # First-record delivery check, then periodic flushing.
+                if queued == 1 or now - last_flush >= FLUSH_INTERVAL_SECONDS:
+                    remaining = flush_pending(producer)
+
+                    if queued == 1 and remaining == 0:
+                        logger.info(
+                            "First flush finished; verify the topic in T4."
+                        )
+
+                    last_flush = time.monotonic()
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception:
+            logger.exception("Bluesky streaming attempt failed.")
+
+        finally:
+            if ws is not None:
+                ws.close()
+
+        logger.info("Reconnecting in %d seconds...", RECONNECT_SECONDS)
+        await asyncio.sleep(RECONNECT_SECONDS)
 
 
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "live"
-    app = Application(broker_address=BROKER, loglevel="WARNING")
+    configure_logging()
+
+    logger.info("Starting file: %s", __file__)
+    logger.info("Broker: %s | Topic: %s", BROKER, TOPIC)
+    logger.info("Loading certificate bundle: %s", certifi.where())
+
+    # Keep certificate and hostname verification enabled.
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+    logger.info("Certificate bundle loaded.")
+
+    app = Application(
+        broker_address=BROKER,
+        loglevel="INFO",
+    )
+
+    configure_logging()
+
     with app.get_producer() as producer:
-        if mode == "history":
-            history(producer, int(sys.argv[2]) if len(sys.argv) > 2 else 7)
-        else:
-            asyncio.run(live(producer))
+        try:
+            asyncio.run(live(producer, ssl_context))
+        except KeyboardInterrupt:
+            logger.info("Stopping producer...")
+        finally:
+            remaining = flush_pending(producer)
+            logger.info("Stopped. Records still pending: %s", remaining)
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level="INFO", format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    try:
-        main()
-    except KeyboardInterrupt:
-        pass
+    main()

@@ -3,10 +3,24 @@
 Fill this in during Session 1 (Thu 05 Nov) with **measured** numbers from `python probe.py <source>`. Then tick the self-check in section 7 **before** you build the producer: it is how you check that your source will work for the whole project.
 
 **Name: Victoria Martinez** 
-**Date: Nov 12, 2026**
+**Date: Nov 17, 2026**
+**Had to re-write due to coinbase failure later on in the project**
 
 ### **Order of probing:** coinbase, bluesky and  opensky 
-Opensky was the first one that worked but after updating my coinbase certificate, coinbase worked too and is the source I will be using for this project. 
+Opensky was the first one that worked but after updating my coinbase certificate, coinbase worked too. I ended up deciding to use BlueSky though. 
+
+- Protocol: WebSocket (push), Bluesky Jetstream
+- Probe duration: 120 seconds
+- Messages received: 5,516
+- Invalid JSON messages: 0
+- Measured rate: 45.95 messages/second
+- Estimated collection time for 50,000 raw records:
+  50,000 / 45.95 ≈ 1,088 seconds, or 18.1 minutes
+- Collection plan: Allow approximately 25–30 minutes for margin,
+  then verify the actual landed record count.
+- Proposed Kafka key: did
+- Post identity: (did, commit.rkey), keeping the latest operation
+
 ## 1. The source
 - Source and URL: Coinbase, wss://ws-feed.exchange.coinbase.com
 - Method (WebSocket push, REST polling or REST history pull): WebSocket push, subscribes to the matches channel within 5 seconds
@@ -16,21 +30,35 @@ Opensky was the first one that worked but after updating my coinbase certificate
 ## 2. One real message
 Paste one message from the probe (shorten long text fields):
 
---- sample message 2 ---
+--- sample message 3 ---
 ```
-{
-  "type": "last_match",
-  "trade_id": 175991703,
-  "maker_order_id": "e45c47f2-6bba-4f7f-9c76-5ec284a6a72e",
-  "taker_order_id": "cf8cc063-00bb-4ed2-9d3c-2b6ec38a191c",
-  "side": "buy",
-  "size": "8245",
-  "price": "0.06562",
-  "product_id": "DOGE-USD",
-  "sequence": 24589191479,
-  "time": "2026-11-12T13:48:16.487244Z"
-}
-
+  "did": "did:plc:wjq5tslh74s6slrsw5rg2fd4",
+  "time_us": 1794958379754977,
+  "cursor": 27297025827,
+  "kind": "commit",
+  "commit": {
+    "rev": "3n2k7cdpnzp2s",
+    "operation": "create",
+    "collection": "app.bsky.feed.post",
+    "rkey": "3n2k7cdc6pc2h",
+    "record": {
+      "$type": "app.bsky.feed.post",
+      "createdAt": "2026-11-17T23:32:59.194Z",
+      "langs": [
+        "en"
+      ],
+      "reply": {
+        "parent": {
+          "cid": "bafyreiefsxihpg6m2sqni4ntuezzd6sbxbocpnrjkzxi7kg7dl5dio3ham",
+          "uri": "at://did:plc:zaecag7s6o7rgru2bkaqyrct/app.bsky.feed.post/3n2k5x7upec2j"
+        },
+        "root": {
+          "cid": "bafyreieg6gz5jo3wkn3t5sgtn4tvtjg5xcmhy2w47odpa2kjb4tigtt4aa",
+          "uri": "at://did:plc:kudostgxhdzynxnmxempreyq/app.bsky.feed.post/3mzt4szn4ns2z"
+        }
+      },
+      "text": "The claim that Zionism is simply about self-determination is
+  ... (cut)
 ```
 
 ## 3. Volume maths

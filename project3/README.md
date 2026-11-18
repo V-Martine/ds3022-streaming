@@ -1,17 +1,55 @@
-# TODO: your project title
+# BlueSky Steaming Pipeline Project - DS3022
 
-**Author:** TODO
+**Author:** Victoria
 **DS 3022 Data Project 3, Fall 2026**
 
 > There is no interview for this project: this README is where you explain and defend your pipeline. Fill in the title, your name and every italic placeholder, then delete this note. Keep the headings: `kit/check_project.py` looks for them.
 
 ## Data source
+This project uses Bluesky Jetstream, a push-based source accessed through a WebSocket connection. The producer sends each received event to Kafka for downstream processing. Jetstream does not require a subscription message after connecting `SUBSCRIBE = NONE`.
 
-_(replace: what source, which URL or stream, pull or push, what one message contains. Mention any account, key or User-Agent needed. If you replay an archive rather than stream live, say so.)_
+Research question: How does the volume of Bluesky posts vary over time by language?
+
+Originally, I used Coinbase to run this project, however, I encounted many issues with my certificate/security settings. I had to re-start the project from scratch twice but once I switched to BlueSky, I was able to work through the project. 
 
 ## How to run
+### 1. Prerequisties and installing dependencies: 
+Needed: 
+- Python 3.13 
+- Docker Desktop (open and have running before )
 
-_(replace: the exact commands, in order, from a fresh clone. A classmate will follow them in Session 4 (Mon 16 Nov) without asking you. Include: virtual environment and `pip install`, starting the cluster, creating the topic, running the producer and lander, running the flow on the full data and on the sample:)_
+Clone this repository and then open a terminal in its root folder
+(`ds3022-streaming`, and ensure that it contains the `docker-compose.yml` file).
+
+Needed commands: 
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install requests tornado quixstreams duckdb prefect matplotlib certifi
+```
+### 2. Running on the committed sample: 
+- Open up a terminal and set up a virtual environment: `source /Users/.../ds3022-streaming/.venv/bin/activate`
+- Navigate to the project3 folders and test the sample
+
+```bash
+cd project3
+python flow.py data/sample
+python flow.py data/sample
+```
+- Ensure that both runs report the same 4 numbers. 
+- Because the sample data uses a seperate database so that it doesn't over 
+
+
+
+```bash
+cd project3
+python flow.py data/sample
+python flow.py data/sample
+```
+
+
+
 
 ```bash
 cd project3
@@ -73,3 +111,9 @@ _(replace: about 150 words, first person. What did you learn about streaming sys
 ## Acknowledgements
 
 _(replace: everyone who helped you and how (classmates, instructor, online sources), code you reused (for example connection code from probe.py), and any AI assistance: what for, and how you checked the result. Write "None" if there is nothing to declare.)_
+
+
+## All things that were labeled "Write Down" 
+Checkpoint B: 
+- Messages in the topic: 2,118 + 220 + 1,125 = 3,463.
+
