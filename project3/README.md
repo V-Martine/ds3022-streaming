@@ -75,9 +75,10 @@ Answer each in 2-4 sentences, in your own words, with your own numbers.
 
 | Card | Prediction | What I did | Numbers before → after | Explanation |
 |---|---|---|---|---|
-| D1 Crash between file and offsets | TODO | TODO | TODO | TODO |
-| D2 Poison message | TODO | TODO | TODO | TODO |
-| TODO (D3, D4 or D5) | TODO | TODO | TODO | TODO |
+| D1 Crash between file and offsets | I predict that the lander will try to read the crashed batch again because the offsets were not stored properly. | Kept the producer stopped and used the existing backlog. Ran `"$TEST_PY" -u lander.py crash`, then ran `"$TEST_PY" -u lander.py once`, making sure to count between each run. The restart wrote one file before hitting a Python scope error. | Raw 54,612 → 56,612; malformed 0 → 0; unique Kafka records 54,612 → 55,780; unique posts 53,956 → 55,122. | The intentional crash left a Parquet file on disk without storing its offsets. The restart wrote 832 replayed records and 168 not previously landed. The replayed copies increased the raw count but not the unique Kafka-record count. |
+| D2 Poison message | I predict that the non-JSON message with be recorded with both a raw row and a malformed row but not stop the lander.| I first created the test topic in T4 and then in T2, started the test lander. After following the instructions to send one malformed message in T4, I verified the result in T2 and T3. Between this and the previous test, I had something weird happen with my lander/producer and somehow acquired over a million messages hence the number difference (I spoke to Prof. Pons about this in class and had to raise the soft limit in the terminal to counter the huge increse in the numbers).| Numbers changed from: raw 1,462,631 → 1,462,632 ,  malformed 0 → 1, unique Kafka records and unique did+rkey stayed the same. 
+ | TODO |
+| TODO (D3, D4 or D5) | D3: I predict that the broker 1 will go down and as leader. However, high-watermarks will not increase | TODO | My prediction that high-watermakrs would not increase was incorrect, as when I tested two different times while broker 1 was still down, the high-watermakers number increased showing that the topic is still accepting records during the outage. Numbers changed from 1,462,632 → 1,487,245, unique Kafka records 1,461,631 → 1,486,244, unique did+rkey 1,433,497 →  1,457,870| TODO |
 
 ## The four numbers
 
@@ -89,6 +90,15 @@ From the flow log on the full data (screenshot in `docs/`):
 | Malformed (kept in raw) | TODO | TODO |
 | Unique Kafka records | TODO | TODO |
 | Unique TODO (your entity) | TODO | TODO |
+
+raw 55,612 | malformed 0 | unique Kafka records 55,612 | unique did+rkey 54,954
+raw 56,612 | malformed 0 | unique Kafka records 55,780 | unique did+rkey 55,122
+D2:
+raw 1,462,631 | malformed 0 | unique Kafka records 1,461,631 | unique did+rkey 1,433,497
+raw 1,462,632 | malformed 1 | unique Kafka records 1,461,631 | unique did+rkey 1,433,497
+D3: 
+raw 1,462,632 | malformed 1 | unique Kafka records 1,461,631 | unique did+rkey 1,433,497
+raw 1,487,245 | malformed 1 | unique Kafka records 1,486,244 | unique did+rkey 1,457,870
 
 ## Challenges / Obstacles
 
